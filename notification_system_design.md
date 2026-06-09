@@ -1,64 +1,150 @@
-# Stage 1
+# Notification Priority System Design
 
-## Problem Statement
-The objective of this stage is to build a high-performance notification processing backend that fetches notifications from a remote protected API and retrieves the top 10 unread notifications based on priority. The system must operate within the following constraints:
+---
+
+## Stage 1
+
+### Problem Statement
+Build a high-performance notification processing backend that fetches notifications from a remote protected API and retrieves the top 10 unread notifications based on priority.
+
+Constraints:
 - No user interface (CLI only)
 - No local or remote database
 - No hardcoded notification data
-- Must use an O(N) heap-based filtering algorithm to select the top 10 notifications without sorting the entire dataset
-- Log every important system event using a standardized logging pattern
+- O(N) heap-based filtering algorithm (no full array sort)
+- Structured logging throughout using the `Log()` middleware
 
-## Priority Strategy
-Notifications are assigned a numerical priority score computed from their type and their recency.
-Each notification type has a pre-defined weight:
-- **Placement**: Weight = 3
-- **Result**: Weight = 2
-- **Event**: Weight = 1
-- **Other types**: Default weight = 0
+### Priority Strategy
+Each notification type is assigned a weight:
+| Type      | Weight |
+|-----------|--------|
+| Placement | 3      |
+| Result    | 2      |
+| Event     | 1      |
 
-The priority score formula is:
-$$\text{priorityScore} = \text{typeWeight} + \text{recencyScore}$$
+Priority score formula:
+```
+priorityScore = typeWeight + recencyScore
+recencyScore  = timestamp_ms / 1e12
+```
 
-## Recency Handling
-To ensure newer notifications are prioritized over older ones within the same type category, we calculate and add a normalized recency score.
-1. The notification's `Timestamp` (e.g. `"2026-04-22 17:51:18"`) is converted into a standard Unix epoch millisecond timestamp.
-2. The timestamp is normalized by dividing by $10^{12}$ ($1\text{e}12$):
-   $$\text{recencyScore} = \frac{\text{timestampMs}}{10^{12}}$$
-3. Because Unix timestamps grow as time progresses, a larger (more recent) timestamp results in a larger `recencyScore`, thus increasing the overall priority score.
+### Recency Handling
+- Normalize the Unix timestamp (ms) by dividing by `1e12`.
+- More recent notifications produce larger recency scores, naturally ranking higher within the same type.
 
-## Algorithm
-Instead of sorting the entire array of notifications—which is inefficient for large datasets—the system maintains a min-heap of a fixed maximum size of 10.
-1. Fetch the raw notifications list from the protected API.
-2. Initialize an empty `MinHeap` where comparisons are based on `priorityScore`.
-3. For each notification:
-   - Calculate its `priorityScore` using `calculatePriority(notification)`.
-   - If the heap contains fewer than 10 elements, insert the notification directly: $O(\log 10) = O(1)$.
-   - If the heap already has 10 elements, compare the notification's `priorityScore` with the minimum score in the heap (the root element):
-     - If the current notification's score is strictly higher than the root element, extract the root (minimum) element and insert the current notification.
-     - Otherwise, discard the current notification.
-4. After processing all $N$ notifications, extract all remaining notifications from the heap (up to 10 elements).
-5. Sort the extracted notifications in descending order (highest priority first) and print them to the console in the required format.
+### Algorithm
+Uses a **Min-Heap of fixed size K = 10**:
+1. Fetch all N notifications from the API.
+2. For each notification, calculate `priorityScore`.
+3. If heap size < 10 → insert directly.
+4. If heap size = 10 → compare with heap minimum:
+   - If current score > minimum → `extractMin()` + `insert()`.
+   - Otherwise → discard.
+5. Drain heap, sort descending, print top 10.
 
-## Time Complexity
-- **Fetching**: $O(N)$ where $N$ is the number of notifications returned by the API.
-- **Heap Insertion/Extraction**: Each insertion or extraction on a heap of max size $K = 10$ takes $O(\log K) = O(\log 10) \approx 3.32$ operations, which is $O(1)$ constant time.
-- **Processing Loop**: For $N$ notifications, the loop does at most 1 heap peek and 1 heap insert/extract min, leading to a complexity of $O(N \log K) = O(N \log 10)$.
-- **Final Sorting**: Sorting the final list of size $K$ takes $O(K \log K) = O(10 \log 10) = O(1)$ constant time.
-- **Overall Time Complexity**: $O(N)$ linear time. This is extremely efficient and scales linearly with the input size.
+### Time Complexity
+| Operation        | Complexity          |
+|------------------|---------------------|
+| API Fetch        | O(N)                |
+| Heap per item    | O(log 10) ≈ O(1)   |
+| Full iteration   | O(N log 10) = O(N) |
+| Final drain/sort | O(10 log 10) = O(1)|
+| **Overall**      | **O(N)**            |
 
-## Scalability
-The min-heap approach ensures excellent scalability:
-- **Memory Efficiency**: The memory footprint remains bounded at $O(K) = O(10)$ elements, regardless of whether we process $100$ or $10,000,000$ notifications.
-- **CPU Efficiency**: By keeping the heap size bounded to $K$, we avoid sorting the entire array ($O(N \log N)$), saving substantial CPU time and processing resources for large values of $N$.
+### Scalability
+- Memory bounded at O(10) regardless of N.
+- Scales to millions of notifications without degradation.
 
-## Logging Strategy
-All components implement structured logging to stdout. The logger function is defined as:
+### Logging Strategy
 ```javascript
 function Log(level, module, message) {
   console.log(`[${level.toUpperCase()}] [${module}] ${message}`);
 }
 ```
-Logging statements are positioned throughout the application lifecycle:
-- **API module**: Logs when initiating a fetch request and any errors caught during the fetch operation.
-- **Priority calculator**: Logs for every notification priority calculation, referencing the notification ID.
-- **Notification service**: Logs once the top notifications calculation completes.
+- `[INFO] [api]` — on every API fetch attempt
+- `[INFO] [utils]` — per notification priority calculation
+- `[INFO] [service]` — when top list is computed
+- `[ERROR] [api]` — on fetch or HTTP failure
+
+---
+
+## Stage 2
+
+### Problem Statement
+Build a responsive React frontend application that:
+- Displays all notifications with pagination and type filtering.
+- Shows a Priority Board with Top N notifications computed client-side via MinHeap.
+- Distinguishes read vs. unread notifications using `localStorage` persistence.
+- Runs on `http://localhost:3000`.
+- Uses Material UI exclusively for styling.
+
+### Frontend Architecture
+
+```
+notification_app_fe/
+├── src/
+│   ├── api.js                          # API client + Mock fallback engine
+│   ├── App.jsx                         # Root layout: theme, sidebar, routing
+│   ├── index.css                       # Global styles, fonts, animations
+│   ├── main.jsx                        # React DOM entry point
+│   ├── components/
+│   │   ├── AllNotifications.jsx        # Inbox view: pagination, filters
+│   │   ├── PriorityNotifications.jsx   # Priority Board: MinHeap selection
+│   │   └── NotificationCard.jsx        # Shared card component
+│   └── utils/
+│       ├── minHeap.js                  # Client-side MinHeap data structure
+│       └── priorityCalculator.js       # Priority score formula
+```
+
+### Pages
+
+#### Inbox (All Notifications)
+- Fetches notifications via API with query params: `limit`, `page`, `notification_type`.
+- Provides Type filter (All / Placement / Result / Event) and per-page limit (5 / 10 / 20).
+- MUI Pagination component for multi-page navigation.
+- Loading state: animated MUI Skeleton cards.
+- Read/unread state: indigo left-border accent + "New" badge on unread cards.
+- "Mark Page Read" button to bulk-mark all visible cards.
+
+#### Priority Board (Priority Notifications)
+- Fetches a batch of 100 notifications and applies client-side MinHeap to select the Top N.
+- Adjustable N via dropdown (Top 5 / 10 / 15 / 20).
+- Each card displays: type chip, rank badge (`#1`, `#2`, …), priority score chip, read state.
+- Amber left-border accent distinguishes it from Inbox.
+- "Mark All Read" button for the full displayed board.
+
+### Read/Unread Tracking
+- Notification IDs are stored in `localStorage` under the key `viewed_notification_ids`.
+- State is initialized from `localStorage` on app mount and shared via React props between both pages.
+- Visual cues for unread: bold text, indigo/amber left border, "New" Chip badge.
+- Visual cues for read: dimmed text, transparent border, ✓ Read label.
+- Live unread count displayed in the sidebar badge and the AppBar bell icon.
+
+### API Client (`api.js`)
+- Supports query params: `limit`, `page`, `notification_type`.
+- Falls back to a client-side **Mock Engine** if the token is a placeholder or the API returns 401.
+- The Mock Engine applies the same filtering, sorting (by timestamp desc), and pagination as the real API would.
+
+### Styling Strategy
+- **Material UI v9** exclusively for all components — no ShadCN, Tailwind, or custom CSS frameworks.
+- Custom dark theme: Slate-900 background (`#0f172a`), Slate-800 surfaces (`#1e293b`), Indigo primary (`#6366f1`), Amber secondary (`#f59e0b`).
+- **Outfit** Google Font for all typography.
+- Smooth `translateY` hover animations on cards.
+- CSS `@keyframes fadeInUp` / `slideIn` for page and card entry transitions.
+- Custom slim scrollbar via `::-webkit-scrollbar`.
+
+### Responsiveness
+- Sidebar is a permanent `Drawer` on `md+` (≥ 900px) breakpoint.
+- On mobile (`xs`/`sm`), the sidebar collapses into a temporary drawer opened via a hamburger `MenuIcon` in the AppBar.
+- Filter controls stack vertically on small screens using MUI `Stack` responsive `direction` props.
+- All grid/card layouts use full width on mobile.
+
+### Complexity (Priority Board)
+| Operation       | Complexity          |
+|-----------------|---------------------|
+| API Fetch       | O(N)                |
+| Heap per item   | O(log K) ≈ O(1)    |
+| Full processing | O(N log K)          |
+| **Overall**     | **O(N)**            |
+
+Where K = topN (max 20), log K is effectively constant.
