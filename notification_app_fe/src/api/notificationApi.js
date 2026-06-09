@@ -1,37 +1,42 @@
-// notificationApi.js
-// Fetch notifications from a provided API.
+import { Log } from '../utils/logger.js';
 
-const DEFAULT_API_URL = process.env.NOTIFICATION_API_URL;
+const API_URL = 'http://4.224.186.213/evaluation-service/notifications';
+const BEARER_TOKEN = 'PLACEHOLDER_TOKEN_BEARER';
 
-async function fetchNotifications({ apiUrl = DEFAULT_API_URL, fetchImpl = fetch } = {}) {
-  if (!apiUrl) {
-    throw new Error('Missing NOTIFICATION_API_URL env var (or pass apiUrl to fetchNotifications).');
+/**
+ * Fetches raw notifications from the external API.
+ * @returns {Promise<Array>} List of notifications
+ */
+async function fetchNotifications() {
+  try {
+    Log('info', 'api', 'Fetching notifications from API');
+
+    const res = await fetch(API_URL, {
+      method: 'GET',
+      headers: {
+        'Content-Type': 'application/json',
+        'Authorization': `Bearer ${BEARER_TOKEN}`,
+      },
+    });
+
+    if (!res.ok) {
+      const text = await res.text().catch(() => '');
+      throw new Error(`Notification API error: ${res.status} ${res.statusText} ${text}`.trim());
+    }
+
+    const data = await res.json();
+    
+    if (data && Array.isArray(data.notifications)) {
+      return data.notifications;
+    }
+    
+    return [];
+  } catch (error) {
+    Log('error', 'api', error.message);
+    throw error;
   }
-
-  const res = await fetchImpl(apiUrl, {
-    method: 'GET',
-    headers: {
-      'Content-Type': 'application/json',
-    },
-  });
-
-  if (!res.ok) {
-    const text = await res.text().catch(() => '');
-    throw new Error(`Notification API error: ${res.status} ${res.statusText} ${text}`.trim());
-  }
-
-  const data = await res.json();
-
-  // Accept a couple common shapes:
-  // - { notifications: [...] }
-  // - { items: [...] }
-  // - [...]
-  if (Array.isArray(data)) return data;
-  if (Array.isArray(data.notifications)) return data.notifications;
-  if (Array.isArray(data.items)) return data.items;
-
-  return [];
 }
 
 export { fetchNotifications };
+
 

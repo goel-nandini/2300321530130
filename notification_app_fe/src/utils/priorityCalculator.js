@@ -1,58 +1,33 @@
+import { Log } from './logger.js';
+
 const TYPE_WEIGHTS = {
   placement: 3,
   result: 2,
   event: 1,
 };
 
-function computeRecencyContribution(timestampMs) {
-  const now = Date.now();
-  const ageMs = Math.max(0, now - timestampMs);
+/**
+ * Calculates the priority score of a notification.
+ * @param {Object} notification
+ * @returns {number} The priority score
+ */
+function calculatePriority(notification) {
+  const type = String(notification.Type || '').toLowerCase();
+  const typeWeight = TYPE_WEIGHTS[type] || 0;
 
-  // Half-life of 1 day (tunable).
-  const halfLifeMs = 24 * 60 * 60 * 1000;
-  const lambda = Math.log(2) / halfLifeMs;
+  const timestampStr = notification.Timestamp || '';
+  // Normalize date string formatting by replacing space with 'T' to ensure cross-platform/node compatibility
+  const normalizedStr = timestampStr.includes(' ') ? timestampStr.replace(' ', 'T') : timestampStr;
+  const timestamp = Date.parse(normalizedStr);
 
-  return Math.exp(-lambda * ageMs);
-}
+  const recencyScore = Number.isNaN(timestamp) ? 0 : timestamp / 1e12;
+  const priorityScore = typeWeight + recencyScore;
 
-function normalizeType(type) {
-  return String(type || '').toLowerCase();
-}
+  Log('info', 'utils', `Priority score calculated for notification ID: ${notification.ID}`);
 
-function calculatePriority(notification, options = {}) {
-  const weightPlacement = options.placementWeight ?? TYPE_WEIGHTS.placement;
-  const weightResult = options.resultWeight ?? TYPE_WEIGHTS.result;
-  const weightEvent = options.eventWeight ?? TYPE_WEIGHTS.event;
-
-  const type = normalizeType(
-    notification.type ?? notification.notificationType,
-  );
-
-  const typeWeight =
-    type === 'placement'
-      ? weightPlacement
-      : type === 'result'
-        ? weightResult
-        : type === 'event'
-          ? weightEvent
-          : 0;
-
-  const tsRaw =
-    notification.timestamp ??
-    notification.createdAt ??
-    notification.time ??
-    notification.date;
-
-  const timestampMs = typeof tsRaw === 'number' ? tsRaw : Date.parse(tsRaw);
-
-  // If timestamp missing/invalid, treat as oldest.
-  const recency = Number.isFinite(timestampMs) ? computeRecencyContribution(timestampMs) : 0;
-
-  // Final score: type dominates; recency refines.
-  const priorityScore = typeWeight * (0.5 + recency);
-
-  return { type, typeWeight, recency, priorityScore };
+  return priorityScore;
 }
 
 export { calculatePriority };
+
 
