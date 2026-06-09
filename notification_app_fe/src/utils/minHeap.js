@@ -1,6 +1,5 @@
 class MinHeap {
   constructor(compareFn) {
-    // compareFn(a, b) should return negative if a < b
     this.compareFn = compareFn || ((a, b) => a.priorityScore - b.priorityScore);
     this.heap = [];
   }
@@ -70,4 +69,3 @@ class MinHeap {
 }
 
 export { MinHeap };
-
