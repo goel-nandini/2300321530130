@@ -1,0 +1,9 @@
+{
+    "name": "logging-middleware",
+    "version": "1.0.0",
+    "description": "Reusable logging middleware for Afford Medical frontend",
+    "main": "index.js",
+    "type": "module",
+    "author": "2300321530130",
+    "license": "MIT"
+  }
